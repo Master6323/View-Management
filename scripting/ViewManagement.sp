@@ -40,9 +40,6 @@ public void OnPluginStart()
 
 
 
-	//Add OnEntityCreated Hook:
-	DHookAddEntityListener(ListenType_Created, OnEntityCreated);
-
 	// void CHL2MP_Player::PreThink( void )
 	int offset = GameConfGetOffset(GameData, "PreThink");
 
