@@ -358,36 +358,6 @@ public Action OnPlayerRunCmd(int Client, int &Buttons, int &impulse, float vel[3
 
 }
 
-// void Unknown...
-public void OnEntityCreated(int Entity, const char[] ClassName)
-{
-
-	//Check:
-	if(StrEqual(ClassName, "Crossbow_Bolt"))
-
-	{
-
-
-
-		//Hooking:
- 		DHookEntity(hPreThink, false, Entity);
-
-		//Timer:
-		CreateTimer(20.0, RemoveCrossbowBolt, Entity);
-	}
-
-	//Check:
-	if(StrEqual(ClassName, " npc_tripmine"))
-
-	{
-
-
-
-		//Timer:
-		CreateTimer(0.1, OnTripMinePostSpawned, Entity);
-	}
-}
-
 // void CHL2MP_Player::ThinkPost( Void )
 public MRESReturn OnPreThinkPre(int Entity, Handle hParams)
 {
@@ -490,111 +460,8 @@ public MRESReturn OnPreThinkPre(int Entity, Handle hParams)
 		}
 	}
 
-	//valid check:
-	else if(IsValidEdict(Entity))
-	{
-
-		//Declare:
-
-		float Velocity[3];
-
-
-
-		//Initulize:
-
-		GetEntPropVector(Entity, Prop_Data, "m_vecVelocity", Velocity);
-
-
-
-		//Check to see if Plasma Bolt has stopped Moving:
-
-		if(Velocity[0] == 0.0 || Velocity[1] == 0.0 || Velocity[2] == 0.0)
-
-		{
-
-
-					
-
-			//Accept:
-
-			RemoveEdict(Entity);
-
-		}
-
-				
-
-		//PrintToServer("bolt velocity %f %f %f", Velocity[0], Velocity[1], Velocity[2]);
-
-	}
-
 	//Return:
 	return MRES_Ignored; 
-}
-
-
-//Create Database:
-public Action OnTripMinePostSpawned(Handle Timer, any Entity)
-{
-
-	//Check:
-	if(IsValidEdict(Entity))
-	{
-
-		//Declare:
-		float MineOrigin[3];
-		float SpawnOrigin[3];
-
-		//Initialize:
-		GetEntPropVector(Entity, Prop_Send, "m_vecOrigin", SpawnOrigin);
-
-		//Loop:
-		for(int X = GetMaxClients(); X < 2047; X++)
-		{
-
-			//Is Valid:
-			if(IsValidEdict(X))
-			{
-
-				//Declare:
-				char ClassName[32];
-
-				//Get Entity Info:
-				GetEdictClassname(X, ClassName, sizeof(ClassName));
-
-				//Prop Garbage Can:
-				if(StrEqual(ClassName, "info_teleport_destination"))
-				{
-
-					//Initialize:
-					GetEntPropVector(X, Prop_Send, "m_vecOrigin", SpawnOrigin);
-
-					//Declare:
-					float Dist = GetVectorDistance(MineOrigin, SpawnOrigin);
-
-					//In Distance:
-					if(Dist <= 250)
-					{
-
-						//Remove:
-						AcceptEntityInput(X, "explode");
-					}
-				}
-			}
-		}
-	}
-}
-
-//Create Database:
-public Action RemoveCrossbowBolt(Handle Timer, any Entity)
-{
-
-	//Check:
-	if(IsValidEdict(Entity))
-	{
-
-		//Remove:
-		AcceptEntityInput(Entity, "Kill");
-	}
 }
 
 public Action Command_FirstPerson(int Client, int Args)
