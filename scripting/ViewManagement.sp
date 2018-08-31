@@ -11,7 +11,6 @@
 #include <sourcemod>
 #include <sdktools>
 #include <sdkhooks>
-#include <dhooks>
 
 //Plugin Info:
 public Plugin myinfo =
@@ -23,7 +22,6 @@ public Plugin myinfo =
 	url = ""
 };
 
-Handle hPreThink = INVALID_HANDLE;
 Handle ViewTimer[MAXPLAYERS + 1] = {INVALID_HANDLE,...};
 bool ThirdPerson[MAXPLAYERS + 1] = {false,...};
 float CurrentEyeAngle[MAXPLAYERS + 1][3];
@@ -35,25 +33,6 @@ ConVar MP_FORCECAMERA;
 public void OnPluginStart()
 {
 
-	//Declare:
-	Handle GameData = LoadGameConfigFile("MasterRP");
-
-
-
-	// void CHL2MP_Player::PreThink( void )
-	int offset = GameConfGetOffset(GameData, "PreThink");
-
-	//DHooks:
-	hPreThink = DHookCreate(offset, HookType_Entity, ReturnType_Void, ThisPointer_CBaseEntity, OnPreThinkPre);
-
-	//Has Failed:
-	if(hPreThink == INVALID_HANDLE)
-	{
-
-		//Fail State:
-		SetFailState("[SM] ERROR: Missing offset 'void CHL2MP_Player::PreThink( void )'");
-	}
-
 	//Event Hooking:
 	HookEvent("player_death", EventPlayerDeath_Forward, EventHookMode_Pre);
 
@@ -63,6 +42,18 @@ public void OnPluginStart()
 
 	RegConsoleCmd("sm_resetview", Command_ResetView);
 
+	//Loop:
+	for(int Client = 1; Client <= GetMaxClients(); Client++) 
+	{
+
+		//Connected
+		if(IsClientInGame(Client)) 
+		{
+
+			//Loop:
+			SDKHook(Client, SDKHook_PreThinkPost, OnPreThinkPost);
+		}
+	}
 	//Server ConVar:
 	MP_FORCECAMERA = FindConVar("mp_forcecamera");
 }
@@ -85,8 +76,8 @@ public void OnClientPostAdminCheck(int Client)
 
 	g_View[Client] = 0;
 
-	//Client Hooking:
- 	DHookEntity(hPreThink, false, Client);
+	//Loop:
+	SDKHook(Client, SDKHook_PreThinkPost, OnPreThinkPost);
 }
 
 public void OnClinetDisconnect(int Client)
@@ -355,10 +346,9 @@ public Action OnPlayerRunCmd(int Client, int &Buttons, int &impulse, float vel[3
 
 }
 
-// void CHL2MP_Player::ThinkPost( Void )
-public MRESReturn OnPreThinkPre(int Entity, Handle hParams)
+//PostThink
+public void OnPreThinkPost(int Entity)
 {
-
 	//InGame:
 	if(Entity > 0 && Entity <= GetMaxClients() && IsClientInGame(Entity))
 	{
@@ -456,9 +446,6 @@ public MRESReturn OnPreThinkPre(int Entity, Handle hParams)
 			TeleportEntity(Entity, NULL_VECTOR, CurrentEyeAngle[Entity], NULL_VECTOR);
 		}
 	}
-
-	//Return:
-	return MRES_Ignored; 
 }
 
 public Action Command_FirstPerson(int Client, int Args)
