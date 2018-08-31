@@ -72,9 +72,9 @@ public void OnClientPostAdminCheck(int Client)
 	}
 
 	//Initulize:
-	g_Camera[Client] = 0;
+	g_Camera[Client] = -1;
 
-	g_View[Client] = 0;
+	g_View[Client] = -1;
 
 	//Loop:
 	SDKHook(Client, SDKHook_PreThinkPost, OnPreThinkPost);
@@ -84,7 +84,7 @@ public void OnClinetDisconnect(int Client)
 {
 
 	//Is Valid:
-	if(g_Camera[Client] != 0)
+	if(g_Camera[Client] != -1)
 	{
 
 		//Client View:
@@ -99,7 +99,7 @@ public void OnClinetDisconnect(int Client)
 		}
 
 		//Initulize:
-		g_Camera[Client] = 0;
+		g_Camera[Client] = -1;
 	}
 }
 
@@ -277,7 +277,7 @@ public Action ClearViewTimer(Handle timer, any Client)
 			}
 
 			//Initulize:
-			g_Camera[Client] = 0;
+			g_Camera[Client] = -1;
 		}
 	}
 }
@@ -380,6 +380,8 @@ public void OnPreThinkPost(int Entity)
 				//Initulize:
 				WasInVehicle[Entity] = 0;
 			}
+
+			return;
 		}
 	
 		// "m_bEnterAnimOn" is the culprit for vehicles controlling all players views.
@@ -446,6 +448,7 @@ public void OnPreThinkPost(int Entity)
 			TeleportEntity(Entity, NULL_VECTOR, CurrentEyeAngle[Entity], NULL_VECTOR);
 		}
 	}
+	return;
 }
 
 public Action Command_FirstPerson(int Client, int Args)
