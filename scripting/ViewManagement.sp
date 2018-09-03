@@ -12,22 +12,24 @@
 #include <sdktools>
 #include <sdkhooks>
 
+//thirdperson death fix, airboat exit lock,
+
 //Plugin Info:
 public Plugin myinfo =
 {
 	name = "Roleplay ViewManagement Controls",
 	author = "Master(D)",
-	description = "Main Plugin",
-	version = "1.0b",
+	description = "ViewManagement Controls and vehicle fix",
+	version = "1.5b",
 	url = ""
 };
 
-Handle ViewTimer[MAXPLAYERS + 1] = {INVALID_HANDLE,...};
 bool ThirdPerson[MAXPLAYERS + 1] = {false,...};
 float CurrentEyeAngle[MAXPLAYERS + 1][3];
-int g_Camera[MAXPLAYERS + 1] = {0,...};
-int g_View[MAXPLAYERS + 1] = {0,...};
+int g_Camera[MAXPLAYERS + 1] = {-1,...};
 ConVar MP_FORCECAMERA;
+ConVar CV_VEHICLEEXITSPEED;
+ConVar CV_DISABLEDEATHVIEW;
 
 //Initation:
 public void OnPluginStart()
@@ -36,11 +38,17 @@ public void OnPluginStart()
 	//Event Hooking:
 	HookEvent("player_death", EventPlayerDeath_Forward, EventHookMode_Pre);
 
+	//Event Hooking:
+	HookEvent("player_spawn", EventPlayerSpawn_Forward, EventHookMode_Pre);
+
 	RegConsoleCmd("sm_firstperson", Command_FirstPerson);
 
 	RegConsoleCmd("sm_thirdperson", Command_ThirdPerson);
 
 	RegConsoleCmd("sm_resetview", Command_ResetView);
+
+	//Beta
+	RegConsoleCmd("sm_exitcar", Command_ExitVehicle);
 
 	//Loop:
 	for(int Client = 1; Client <= GetMaxClients(); Client++) 
@@ -54,8 +62,42 @@ public void OnPluginStart()
 			SDKHook(Client, SDKHook_PreThinkPost, OnPreThinkPost);
 		}
 	}
+
 	//Server ConVar:
 	MP_FORCECAMERA = FindConVar("mp_forcecamera");
+
+	//Custom ConVar:
+	CV_VEHICLEEXITSPEED = CreateConVar("sm_vehicle_exit_speed", "20", "maximun exit speed");
+
+	//Custom ConVar:
+	CV_DISABLEDEATHVIEW = CreateConVar("sm_first_person_death_view", "1", "0 = disabled 1 = enabled");
+}
+
+// remove players from Vehicles before they are destroyed or the server will crash!
+public void OnEntityDestroyed(int Entity)
+{
+
+	//Declare:
+	char ClassName[32];
+
+	//Initulize:
+	GetEdictClassname(Entity, ClassName, sizeof(ClassName));
+
+	//Is Roleplay Map:
+	if(StrContains(ClassName, "prop_vehicle", false) == 0)
+	{
+
+		//Declare:
+		int Driver = GetEntPropEnt(Entity, Prop_Send, "m_hPlayer");
+
+		//Has Driver:
+		if(Driver != -1)
+		{
+
+			//Exit Car:
+			ExitVehicle(Driver, Entity, true);
+		}
+	}
 }
 
 //Public Void OnClientPutInServer(int Client)
@@ -64,7 +106,6 @@ public void OnClientPostAdminCheck(int Client)
 
 	//Ignore Fake Clients
 	if(IsFakeClient(Client))
-
 	{
 
 		//Return:
@@ -72,9 +113,7 @@ public void OnClientPostAdminCheck(int Client)
 	}
 
 	//Initulize:
-	g_Camera[Client] = -1;
-
-	g_View[Client] = -1;
+	ThirdPerson[Client] = false;
 
 	//Loop:
 	SDKHook(Client, SDKHook_PreThinkPost, OnPreThinkPost);
@@ -82,6 +121,14 @@ public void OnClientPostAdminCheck(int Client)
 
 public void OnClinetDisconnect(int Client)
 {
+
+	//Ignore Fake Clients
+	if(IsFakeClient(Client))
+	{
+
+		//Return:
+		return;
+	}
 
 	//Is Valid:
 	if(g_Camera[Client] != -1)
@@ -101,6 +148,22 @@ public void OnClinetDisconnect(int Client)
 		//Initulize:
 		g_Camera[Client] = -1;
 	}
+
+	//Check:
+	if(IsClientInGame(Client))
+	{
+
+		//Initulize:
+		int InVehicle = GetEntPropEnt(Client, Prop_Send, "m_hVehicle");
+
+		//Check:
+		if(InVehicle != -1)
+		{
+
+			//Exit:
+			ExitVehicle(Client, InVehicle, true);
+		}
+	}
 }
 
 //EventDeath Farward:
@@ -110,12 +173,20 @@ public Action EventPlayerDeath_Forward(Event event, const  char[] name, bool don
 	//Get Users:
 	int Client = GetClientOfUserId(event.GetInt("userid"));
 
+	//Ignore Fake Clients
+	if(IsFakeClient(Client))
+	{
+
+		//Return:
+		return Plugin_Continue;
+	}
+
 	//Check:
 	if(Client != -1 || IsClientInGame(Client) || IsClientConnected(Client))
 	{
 
 		//Is Valid:
-		if(g_View[Client] == 0)
+		if(ThirdPerson[Client] == false && IsFirstPersonDeath() == 1)
 		{
 
 			//Get Ragdoll:
@@ -138,24 +209,6 @@ public Action EventPlayerDeath_Forward(Event event, const  char[] name, bool don
 //Attach new View Angle
 public bool SpawnCamAndAttach(int Client, int Ragdoll)
 {
-
-	//Check:
-	if(ViewTimer[Client] != INVALID_HANDLE)
-	{
-
-		//Kill:
-		KillTimer(ViewTimer[Client]);
-
-		ViewTimer[Client] = INVALID_HANDLE;
-	}
-
-	//Is Valid:
-	if(IsValidEdict(g_Camera[Client]))
-	{
-
-		//Accept:
-		RemoveEdict(g_Camera[Client]);
-	}
 
 	//Declare:
 	char StrModel[64];
@@ -247,22 +300,31 @@ public bool SpawnCamAndAttach(int Client, int Ragdoll)
 	//Initulize:
 	g_Camera[Client] = Entity;
 
-	//Timer:
-	ViewTimer[Client] = CreateTimer(10.0, ClearViewTimer, Client);
-
 	//Return:
 	return true;
 }
 
-public Action ClearViewTimer(Handle timer, any Client)
+//EventDeath Farward:
+public Action EventPlayerSpawn_Forward(Event event, const  char[] name, bool dontBroadcast)
 {
 
-	//Connected:
-	if(Client > 0 && IsClientConnected(Client) && IsClientInGame(Client))
+	//Get Users:
+	int Client = GetClientOfUserId(event.GetInt("userid"));
+
+	//Ignore Fake Clients
+	if(IsFakeClient(Client))
+	{
+
+		//Return:
+		return;
+	}
+
+	//Check:
+	if(Client != -1 || IsClientInGame(Client) || IsClientConnected(Client))
 	{
 
 		//Is Valid:
-		if(g_Camera[Client] != 0)
+		if(g_Camera[Client] != -1)
 		{
 
 			//Client View:
@@ -285,24 +347,34 @@ public Action ClearViewTimer(Handle timer, any Client)
 public Action OnPlayerRunCmd(int Client, int &Buttons, int &impulse, float vel[3], float angles[3], int &Weapon)
 {
 
+
+	//Ignore Fake Clients
+
+	if(IsFakeClient(Client))
+
+	{
+
+
+		//Return:
+
+		return Plugin_Continue;
+
+	}
+
+
 	//Initulize
 	CurrentEyeAngle[Client] = angles;
 
 	//Fast Respawn
 	if(!IsPlayerAlive(Client))
-
 	{
 
-
 		//Declare:
-		int iButton = (Buttons & ~IN_SCORE)
-;
+		int iButton = (Buttons & ~IN_SCORE);
 		float DeathTime = GetEntPropFloat(Client, Prop_Send, "m_flDeathTime");
-
 
 		//Check:
 		if(iButton && (GetGameTime() >= (DeathTime + 0.2)))
-
 		{
 
 
@@ -338,49 +410,72 @@ public Action OnPlayerRunCmd(int Client, int &Buttons, int &impulse, float vel[3
 				//Send:
 				SetEntPropEnt(Client, Prop_Send, "m_hObserverTarget", Client);
 			}
+
+			//Check:
+			if(GetClientMoveType(Client) != 2 && GetClientMoveType(Client) != 5 && GetClientMoveType(Client) != 8)
+			{
+
+				//Set Proper Move Type:
+				SetClientMoveType(Client, 2);
+			}
+		}
+	}
+
+	/*Masters lock and unlock system to fix vehicle exit
+	  have to reverse locking and unlocking for custom exit*/
+
+	//Declare:
+	int InVehicle = GetEntPropEnt(Client, Prop_Send, "m_hVehicle");
+
+	//Is In Car:
+	if(InVehicle != -1)
+	{
+
+		//Check:
+		if(IsValidEdict(InVehicle))
+		{
+
+			//Declare:
+			int Speed = GetEntProp(InVehicle, Prop_Data, "m_nSpeed");
+
+			//Check:
+			if(Speed <= MaxExitSpeed())
+			{
+
+				//Declare:
+				int Locked = GetEntProp(InVehicle, Prop_Data, "m_bLocked");
+
+				//Check:
+				if(Locked == 1)
+				{
+
+					//Exit
+					ExitVehicle(Client, InVehicle, true);
+				}
+			}
 		}
 	}
 
 	//Return:
 	return Plugin_Continue;
-
 }
 
 //PostThink
 public void OnPreThinkPost(int Entity)
 {
+
 	//InGame:
 	if(Entity > 0 && Entity <= GetMaxClients() && IsClientInGame(Entity))
 	{
 
 		//Declare:
-		int WasInVehicle[MAXPLAYERS + 1] = {0,...};
-
 		int InVehicle = GetEntPropEnt(Entity, Prop_Send, "m_hVehicle");
 
 		//Is In Car:
 		if(InVehicle == -1)
 		{
 
-			//Is Valid:
-			if(WasInVehicle[Entity] != 0)
-			{
-
-				//Is Valid:
-				if(IsValidEdict(WasInVehicle[Entity]))
-				{
-
-					//Initulize:
-					SendConVarValue(Entity, FindConVar("sv_Client_predict"), "1");
-
-					//Set Ent:
-					SetEntProp(WasInVehicle[Entity], Prop_Send, "m_iTeamNum", 0);
-				}
-
-				//Initulize:
-				WasInVehicle[Entity] = 0;
-			}
-
+			//Return:
 			return;
 		}
 	
@@ -388,9 +483,6 @@ public void OnPreThinkPost(int Entity)
 		// this is the earliest it can be changed, also stops vehicle starting..
 		if(GetEntProp(InVehicle, Prop_Send, "m_bEnterAnimOn") == 1)
 		{
-
-			//Initulize:
-			WasInVehicle[Entity] = InVehicle;
 
 			//Declare:
 			float FaceFront[3] = {0.0, 90.0, 0.0};
@@ -404,12 +496,12 @@ public void OnPreThinkPost(int Entity)
 			// stick the player in the correct view position if they're stuck in and enter animation.
 			SetEntProp(InVehicle, Prop_Send, "m_nSequence", 0);
 
-			// set the vehicles team so team mates can't destroy it.
-			int DriverTeam = GetEntProp(Entity, Prop_Send, "m_iTeamNum");
-			SetEntProp(InVehicle, Prop_Send, "m_iTeamNum", DriverTeam);
+			// set the vehicles team so team mates can't destroy it. i have disabled this because its roleplay
+			//int DriverTeam = GetEntProp(Entity, Prop_Send, "m_iTeamNum");
+			//SetEntProp(InVehicle, Prop_Send, "m_iTeamNum", DriverTeam);
 
-			//Accept:
-			AcceptEntityInput(InVehicle, "Lock");
+			//Lock Players Inside!
+			AcceptEntityInput(InVehicle, "Lock", Entity);
 
 			//Loop:
 			for(int players = 1; players <= MaxClients; players++) 
@@ -432,23 +524,284 @@ public void OnPreThinkPost(int Entity)
 			//Initulize:
 			SendConVarValue(Entity, FindConVar("sv_Client_predict"), "0");
 		}
+	}
+
+	//Return:
+	return;
+}
+
+public void ExitVehicle(int Client, int Vehicle, bool Force)
+{
+
+	//Declare:
+	float ExitPoint[3];
+
+	//Force:
+	if(Force)
+	{
+
+		// check left.
+		if (!IsExitClear(Client, Vehicle, 90.0, ExitPoint))
+		{
+
+			// check right.
+			if (!IsExitClear(Client, Vehicle, -90.0, ExitPoint))
+			{
+
+				// check front.
+				if (!IsExitClear(Client, Vehicle, 0.0, ExitPoint))
+				{
+
+					// check back.
+					if (!IsExitClear(Client, Vehicle, 180.0, ExitPoint))
+					{
+
+						// check above the vehicle.
+						float ClientEye[3];
+
+						//Initulize:
+						GetClientEyePosition(Client, ClientEye);
+
+						//Declare:
+						float ClientMinHull[3];
+
+						float ClientMaxHull[3];
+
+						//Initulize:
+						GetEntPropVector(Client, Prop_Send, "m_vecMins", ClientMinHull);
+
+						GetEntPropVector(Client, Prop_Send, "m_vecMaxs", ClientMaxHull);
+
+						//Declare:
+						float TraceEnd[3];
+
+						//Initulize:
+						TraceEnd = ClientEye;
+						TraceEnd[2] += 500.0;
+
+						//Trace:
+						TR_TraceHullFilter(ClientEye, TraceEnd, ClientMinHull, ClientMaxHull, MASK_PLAYERSOLID, DontHitClientOrVehicle, Client);
+
+						//Declare:
+						float CollisionPoint[3];
+
+						//Check:
+						if (TR_DidHit())
+						{
+
+							//Get Ent Position:
+							TR_GetEndPosition(CollisionPoint);
+						}
+
+						//Override:
+						else
+						{
+
+							//Initulize:
+							CollisionPoint = TraceEnd;
+						}
+
+						//Trace
+						TR_TraceHull(CollisionPoint, ClientEye, ClientMinHull, ClientMaxHull, MASK_PLAYERSOLID);
+
+						//Declare:
+						float VehicleEdge[3];
+
+						//En:
+						TR_GetEndPosition(VehicleEdge);
+						
+						float ClearDistance = GetVectorDistance(VehicleEdge, CollisionPoint);
+
+						//Check:
+						if (ClearDistance >= 100.0)
+						{
+							ExitPoint = VehicleEdge;
+							ExitPoint[2] += 100.0;
+							
+							if (TR_PointOutsideWorld(ExitPoint))
+							{
+								PrintToChat(Client, "[SM] No safe exit point found!!!!!");
+								return;
+							}
+						}
+						else
+						{
+							PrintToChat(Client, "[SM] No safe exit point found!");
+							return;
+						}
+					}
+				}
+			}
+		}
+	}
+	else
+	{
+		GetClientAbsOrigin(Client, ExitPoint);
+	}
+	
+	//Unlock vehicle so players can enter again!
+	AcceptEntityInput(Vehicle, "Unlock");
+
+	AcceptEntityInput(Client, "ClearParent");
+	
+	SetEntPropEnt(Client, Prop_Send, "m_hVehicle", -1);
+	
+	SetEntPropEnt(Vehicle, Prop_Send, "m_hPlayer", -1);
+	
+	SetEntityMoveType(Client, MOVETYPE_WALK);
+	
+	SetEntProp(Client, Prop_Send, "m_CollisionGroup", 5);
+	
+	int hud = GetEntProp(Client, Prop_Send, "m_iHideHUD");
+	hud &= ~1;
+	hud &= ~256;
+	hud &= ~1024;
+	SetEntProp(Client, Prop_Send, "m_iHideHUD", hud);
+	
+	int EntEffects = GetEntProp(Client, Prop_Send, "m_fEffects");
+	EntEffects &= ~32;
+	SetEntProp(Client, Prop_Send, "m_fEffects", EntEffects);
+
+	//Declare:
+	char ClassName[32];
+
+	//Initulize:
+	GetEdictClassname(Vehicle, ClassName, sizeof(ClassName));
+
+	//Is Valid:
+	if(StrEqual("prop_vehicle_driveable", ClassName, false))
+	{
+
+		SetEntProp(Vehicle, Prop_Send, "m_nSpeed", 0);
+		SetEntPropFloat(Vehicle, Prop_Send, "m_flThrottle", 0.0);
+	}
+
+	//Declare:
+	float ExitAng[3];
+
+	//Initulize:
+	GetEntPropVector(Vehicle, Prop_Data, "m_angRotation", ExitAng);
+	ExitAng[0] = 0.0;
+	ExitAng[1] += 90.0;
+	ExitAng[2] = 0.0;
+
+	//Teleport:
+	TeleportEntity(Client, ExitPoint, ExitAng, NULL_VECTOR);
+
+	//Sert View:
+	SetClientViewEntity(Client, Client);
+
+	// stops the vehicle rolling back when it is spawned.
+	SetEntProp(Vehicle, Prop_Data, "m_nNextThinkTick", -1);
+
+	//Initulize: dont remove as will bug player after exited the vehicle
+	SendConVarValue(Client, FindConVar("sv_Client_predict"), "1");
+
+	//Print:
+	PrintToConsole(Client, "[SM] - Exited Vehicle");
+}
+
+// checks if 100 units away from the edge of the Vehicle in the given direction is clear.
+public bool IsExitClear(int Client, int Vehicle, float direction, float exitpoint[3])
+{
+
+	//Declare:
+	float ClientEye[3];
+	float VehicleAngle[3];
+	float ClientMinHull[3];
+	float ClientMaxHull[3];
+	float DirectionVec[3];
+
+	//Initulize:
+	GetClientEyePosition(Client, ClientEye);
+
+	GetEntPropVector(Vehicle, Prop_Data, "m_angRotation", VehicleAngle);
+
+	GetEntPropVector(Client, Prop_Send, "m_vecMins", ClientMinHull);
+
+	GetEntPropVector(Client, Prop_Send, "m_vecMaxs", ClientMaxHull);
+
+	//Math:
+	VehicleAngle[0] = 0.0;
+	VehicleAngle[2] = 0.0;
+	VehicleAngle[1] += direction;
+	
+	//Initulize:
+	GetAngleVectors(VehicleAngle, NULL_VECTOR, DirectionVec, NULL_VECTOR);
+
+	//Scale:
+	ScaleVector(DirectionVec, -500.0);
+
+	//Declare:
+	float TraceEnd[3];
+	float CollisionPoint[3];
+	float VehicleEdge[3];
+
+	//Add:
+	AddVectors(ClientEye, DirectionVec, TraceEnd);
+
+	//Trace:
+	TR_TraceHullFilter(ClientEye, TraceEnd, ClientMinHull, ClientMaxHull, MASK_PLAYERSOLID, DontHitClientOrVehicle, Client);
+
+	//Found End:
+	if(TR_DidHit())
+	{
+
+		//Get End Point:
+		TR_GetEndPosition(CollisionPoint);
+	}
+
+	//Override:
+	else
+	{
+
+		//Initulize:
+		CollisionPoint = TraceEnd;
+	}
+
+	//Trace:
+	TR_TraceHull(CollisionPoint, ClientEye, ClientMinHull, ClientMaxHull, MASK_PLAYERSOLID);
+
+	//Get End Point:
+	TR_GetEndPosition(VehicleEdge);
+
+	//Declare:
+	float ClearDistance = GetVectorDistance(VehicleEdge, CollisionPoint);
+
+	//Is Valid:
+	if(ClearDistance >= 100.0)
+	{
+
+		//Math:
+		MakeVectorFromPoints(VehicleEdge, CollisionPoint, DirectionVec);
+		NormalizeVector(DirectionVec, DirectionVec);
+		ScaleVector(DirectionVec, 100.0);
+		AddVectors(VehicleEdge, DirectionVec, exitpoint);
+
+		//Can Spawn:
+		if(TR_PointOutsideWorld(exitpoint))
+		{
+
+			//Return:
+			return false;
+		}
 
 		//Override:
 		else
 		{
 
-			//Accept:
-			AcceptEntityInput(InVehicle, "TurnOn");
-		}
-
-		if(GetThirdPersonView(Entity))
-		{
-
-			//Teleport:
-			TeleportEntity(Entity, NULL_VECTOR, CurrentEyeAngle[Entity], NULL_VECTOR);
+			//Return:
+			return true;
 		}
 	}
-	return;
+
+	//Override:
+	else
+	{
+
+		//Return:
+		return false;
+	}
 }
 
 public Action Command_FirstPerson(int Client, int Args)
@@ -534,7 +887,7 @@ public Action Command_ThirdPerson(int Client, int Args)
 		SendConVarValue(Client, GetForceCameraConVar(), "1");
 
 		//Print:
-		PrintToChat(Client, "You have Toggled ThirdPerson!");
+		PrintToChat(Client, "[SM] You have Toggled ThirdPerson!");
 	}
 
 	//Override
@@ -542,7 +895,7 @@ public Action Command_ThirdPerson(int Client, int Args)
 	{
 
 		//Print:
-		PrintToChat(Client, "You have already Toggled ThirdPerson!");
+		PrintToChat(Client, "[SM] You have already Toggled ThirdPerson!");
 	}
 
 	//Return:
@@ -556,6 +909,60 @@ public Action Command_ResetView(int Client, int Args)
 	PrintToChat(Client, "Reset View!");
 
 	RemoveObserverView(Client);
+
+	//Return:
+	return Plugin_Handled;
+}
+
+//Create NPC:
+public Action Command_ExitVehicle(int Client, int Args)
+{
+
+	//Is Colsole:
+	if(Client == 0)
+	{
+
+		//Print:
+		PrintToServer("[SM] This command can only be used ingame.");
+
+		//Return:
+		return Plugin_Handled;
+	}
+
+	//Declare:
+	int InVehicle = GetEntPropEnt(Client, Prop_Send, "m_hVehicle");
+
+	//Declare:
+	int Speed = GetEntProp(InVehicle, Prop_Data, "m_nSpeed");
+
+	//Check:
+	if(Speed <= MaxExitSpeed())
+	{
+
+		//Is In Car:
+		if(InVehicle != -1)
+		{
+
+			//Exit
+			ExitVehicle(Client, InVehicle, true);
+		}
+
+		//Override:
+		else
+		{
+
+			//Print:
+			PrintToChat(Client, "[SM] You are currently not in a vehicle");
+		}
+	}
+
+	//Override:
+	else
+	{
+
+		//Print:
+		PrintToChat(Client, "[SM] You are moving to fast to leave the vehicle");
+	}
 
 	//Return:
 	return Plugin_Handled;
@@ -603,9 +1010,58 @@ public int GetObserverTarget(int Client)
 	return view_as<int>(GetEntProp(Client, Prop_Send, "m_hObserverTarget"));
 }
 
+public int GetClientMoveType(int Client)
+{
+
+	//Get Client Team:
+	int movetype = FindSendPropInfo("CBaseEntity", "movetype");
+
+	//Return:
+	return view_as<int>(GetEntData(Client, movetype));
+}
+
+public void SetClientMoveType(int Client, int Type)
+{
+
+	//Get Client Team:
+	int movetype = FindSendPropInfo("CBaseEntity", "movetype");
+
+	//Set Ent Data:
+	SetEntData(Client, movetype, Type);
+}
+
 public ConVar GetForceCameraConVar()
 {
 
 	//Return:
 	return MP_FORCECAMERA;
+}
+
+public int MaxExitSpeed()
+{
+
+	//Return:
+	return view_as<int>(GetConVarInt(CV_VEHICLEEXITSPEED));
+}
+
+public int IsFirstPersonDeath()
+{
+
+	//Return:
+	return view_as<int>(GetConVarInt(CV_DISABLEDEATHVIEW));
+}
+
+public bool DontHitClientOrVehicle(int Entity, int contentsMask, any data)
+{
+
+	//Declare:
+	int InVehicle = GetEntPropEnt(data, Prop_Send, "m_hVehicle");
+
+	//Return:
+	return ((Entity != data) && (Entity != InVehicle));
+}
+
+public bool RayDontHitClient(int Entity, int contentsMask, any data)
+{
+	return (Entity != data);
 }
