@@ -524,6 +524,14 @@ public void OnPreThinkPost(int Entity)
 			//Initulize:
 			SendConVarValue(Entity, FindConVar("sv_Client_predict"), "0");
 		}
+
+		//Check:
+		if(ThirdPerson[Entity] == true)
+		{
+
+			//Initulize:
+			SetThirdPersonView(Entity, false);
+		}
 	}
 
 	//Return:
@@ -812,7 +820,7 @@ public Action Command_FirstPerson(int Client, int Args)
 	{
 
 		//Print:
-		PrintToServer("|RP| - This command can only be used ingame.");
+		PrintToServer("[SM] - This command can only be used ingame.");
 
 		//Return:
 		return Plugin_Handled;
@@ -841,7 +849,7 @@ public Action Command_FirstPerson(int Client, int Args)
 		SendConVarValue(Client, GetForceCameraConVar(), valor);
 
 		//Print:
-		PrintToChat(Client, "You have Toggled FirstPerson!");
+		PrintToChat(Client, "[SM] You have Toggled FirstPerson");
 	}
 
 	//Override
@@ -864,7 +872,21 @@ public Action Command_ThirdPerson(int Client, int Args)
 	{
 
 		//Print:
-		PrintToServer("|RP| - This command can only be used ingame.");
+		PrintToServer("[SM] - This command can only be used ingame.");
+
+		//Return:
+		return Plugin_Handled;
+	}
+
+	//Declare:
+	int InVehicle = GetEntPropEnt(Client, Prop_Send, "m_hVehicle");
+
+	//Check:
+	if(InVehicle != -1)
+	{
+
+		//Print:
+		PrintToChat(Client, "[SM] You cannot toggle thirdperson whilst in a vehicle");
 
 		//Return:
 		return Plugin_Handled;
@@ -905,10 +927,24 @@ public Action Command_ThirdPerson(int Client, int Args)
 public Action Command_ResetView(int Client, int Args)
 {
 
+	//Is Colsole:
+	if(Client == 0)
+	{
+
+		//Print:
+		PrintToServer("[SM] This command can only be used ingame.");
+
+		//Return:
+		return Plugin_Handled;
+	}
+
 	//Print:
 	PrintToChat(Client, "Reset View!");
 
 	RemoveObserverView(Client);
+
+	//Initulize:
+	SetThirdPersonView(Client, false);
 
 	//Return:
 	return Plugin_Handled;
@@ -973,13 +1009,6 @@ public bool GetThirdPersonView(int Client)
 
 	//Return:
 	return view_as<bool>(ThirdPerson[Client]);
-}
-
-public void SetThirdPersonView(int Client, bool Result)
-{
-
-	//Initulize:
-	ThirdPerson[Client] = Result;
 }
 
 public void RemoveObserverView(int Client)
@@ -1064,4 +1093,54 @@ public bool DontHitClientOrVehicle(int Entity, int contentsMask, any data)
 public bool RayDontHitClient(int Entity, int contentsMask, any data)
 {
 	return (Entity != data);
+}
+
+public void SetThirdPersonView(int Client, bool Result)
+{
+
+	//Ignore Fake Clients
+	if(IsFakeClient(Client))
+
+	{
+
+		//Return:
+		return;
+	}
+
+	//Initulize:
+	ThirdPerson[Client] = Result;
+
+	//Check:
+	if(Result == true)
+	{
+
+		//Send:
+		SetEntPropEnt(Client, Prop_Send, "m_hObserverTarget", Client);
+		SetEntProp(Client, Prop_Send, "m_iObserverMode", 5);
+		SetEntProp(Client, Prop_Send, "m_bDrawViewmodel", 0);
+		SetEntProp(Client, Prop_Send, "m_iFOV", 90);
+
+		//Send Client ConVar:
+		SendConVarValue(Client, GetForceCameraConVar(), "1");
+	}
+
+	//Override:
+	else
+	{
+
+		//Send:
+		SetEntPropEnt(Client, Prop_Send, "m_hObserverTarget", -1);
+		SetEntProp(Client, Prop_Send, "m_iObserverMode", 0);
+		SetEntProp(Client, Prop_Send, "m_bDrawViewmodel", 1);
+		SetEntProp(Client, Prop_Send, "m_iFOV", 90);
+
+		//Declare:
+		char valor[6];
+
+		//Get Server ConVar Value:
+		GetConVarString(GetForceCameraConVar(), valor, 6);
+
+		//Send Client ConVar:
+		SendConVarValue(Client, GetForceCameraConVar(), valor);
+	}
 }
