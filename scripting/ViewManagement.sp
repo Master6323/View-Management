@@ -25,6 +25,7 @@ public Plugin myinfo =
 };
 
 bool ThirdPerson[MAXPLAYERS + 1] = {false,...};
+int ForceSwitch[MAXPLAYERS + 1] = {0,...};
 float CurrentEyeAngle[MAXPLAYERS + 1][3];
 int g_Camera[MAXPLAYERS + 1] = {-1,...};
 ConVar MP_FORCECAMERA;
@@ -387,6 +388,24 @@ public Action OnPlayerRunCmd(int Client, int &Buttons, int &impulse, float vel[3
 	//Is Alive:
 	if(IsPlayerAlive(Client))
 	{
+
+		//Check:
+		if(ForceSwitch[Client])
+		{
+
+			//Initulize:
+			Weapon = GetEntPropEnt(Client, Prop_Send, "m_hLastWeapon");
+
+			ForceSwitch[Client]--;
+
+			//Check:
+			if(Weapon == -1)
+			{
+
+				//Initulize:
+				Weapon = 0;
+			}
+		}
 
 		//Check:
 		if(ThirdPerson[Client])
